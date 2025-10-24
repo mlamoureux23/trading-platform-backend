@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import { getDB } from '../db/connection.js';
 import { getRedis } from '../db/redis.js';
+import { getWebSocketServer } from '../websocket/server.js';
 
 const router = express.Router();
 
@@ -47,6 +48,17 @@ router.get('/', async (_req: Request, res: Response) => {
 
   const statusCode = health.status === 'OK' ? 200 : 503;
   res.status(statusCode).json(health);
+});
+
+// WebSocket statistics endpoint
+router.get('/ws-stats', (_req: Request, res: Response) => {
+  try {
+    const wsServer = getWebSocketServer();
+    const stats = wsServer.getStats();
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to get WebSocket stats' });
+  }
 });
 
 export default router;

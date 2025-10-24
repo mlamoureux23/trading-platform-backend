@@ -1,4 +1,5 @@
 import express, { Application } from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -7,6 +8,8 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { connectDB, closeDB } from './db/connection.js';
 import { connectRedis, closeRedis } from './db/redis.js';
+import { connectTimescaleDB, closeTimescaleDB } from './db/timescale.js';
+import { getWebSocketServer } from './websocket/server.js';
 import healthRouter from './routes/health.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
@@ -70,10 +73,23 @@ async function startServer(): Promise<void> {
     await connectRedis();
     console.log('✓ Connected to Redis');
 
-    // Start Express server
-    app.listen(PORT, () => {
+    // Connect to TimescaleDB
+    await connectTimescaleDB();
+    console.log('✓ Connected to TimescaleDB');
+
+    // Create HTTP server
+    const httpServer = createServer(app);
+
+    // Initialize WebSocket server
+    const wsServer = getWebSocketServer();
+    await wsServer.initialize(httpServer);
+    console.log('✓ WebSocket server initialized');
+
+    // Start HTTP server
+    httpServer.listen(PORT, () => {
       console.log(`✓ Server running on port ${PORT}`);
       console.log(`✓ Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`✓ WebSocket available at ws://localhost:${PORT}`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
@@ -84,6 +100,9 @@ async function startServer(): Promise<void> {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM signal received: closing HTTP server');
+  const wsServer = getWebSocketServer();
+  await wsServer.shutdown();
+  await closeTimescaleDB();
   await closeDB();
   await closeRedis();
   process.exit(0);
@@ -91,6 +110,9 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('SIGINT signal received: closing HTTP server');
+  const wsServer = getWebSocketServer();
+  await wsServer.shutdown();
+  await closeTimescaleDB();
   await closeDB();
   await closeRedis();
   process.exit(0);
