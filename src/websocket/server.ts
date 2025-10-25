@@ -1,5 +1,6 @@
 // backend/src/websocket/server.ts
 import { Server as HTTPServer } from 'http';
+import { IncomingMessage } from 'http';
 import WebSocket, { WebSocketServer as WSServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient } from 'redis';
@@ -8,9 +9,11 @@ import { handleClientMessage } from './handlers/candles.js';
 import { getRoomBroadcaster } from './broadcaster.js';
 import { getCandleAggregator } from './aggregator.js';
 import { getHistoryService } from './history.js';
+import { getWhaleAlertsHandler } from './handlers/whales.js';
 
 export class WebSocketServer {
   private wss: WSServer | null = null;
+  private whalesWss: WSServer | null = null;
   private redisSubscriber: ReturnType<typeof createClient> | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private readonly HEARTBEAT_INTERVAL = 30000; // 30 seconds
@@ -21,14 +24,27 @@ export class WebSocketServer {
   async initialize(server: HTTPServer): Promise<void> {
     console.log('[WebSocket] Initializing WebSocket server...');
 
-    // Create WebSocket server
-    this.wss = new WSServer({ server });
+    // Create WebSocket server for candles (default path)
+    this.wss = new WSServer({ noServer: true });
+
+    // Create WebSocket server for whale alerts
+    this.whalesWss = new WSServer({ noServer: true });
+
+    // Set up path-based routing
+    this.setupPathRouting(server);
 
     // Set up Redis subscriber for candle updates
     await this.setupRedisSubscriber();
 
-    // Set up WebSocket connection handler
+    // Set up WebSocket connection handler for candles
     this.setupConnectionHandler();
+
+    // Initialize whale alerts handler
+    const whaleHandler = getWhaleAlertsHandler();
+    await whaleHandler.initialize();
+
+    // Set up connection handler for whale alerts
+    this.setupWhaleConnectionHandler();
 
     // Start heartbeat to detect dead connections
     this.startHeartbeat();
@@ -38,6 +54,29 @@ export class WebSocketServer {
     await historyService.warmupAggregator('BTC/USDT');
 
     console.log('[WebSocket] WebSocket server initialized');
+    console.log('[WebSocket] Candles endpoint: ws://localhost:PORT/');
+    console.log('[WebSocket] Whale alerts endpoint: ws://localhost:PORT/whales');
+  }
+
+  /**
+   * Set up path-based routing for WebSocket connections
+   */
+  private setupPathRouting(server: HTTPServer): void {
+    server.on('upgrade', (request: IncomingMessage, socket, head) => {
+      const pathname = request.url || '/';
+
+      if (pathname === '/whales') {
+        // Route to whale alerts WebSocket
+        this.whalesWss?.handleUpgrade(request, socket, head, (ws) => {
+          this.whalesWss?.emit('connection', ws, request);
+        });
+      } else {
+        // Route to candles WebSocket (default)
+        this.wss?.handleUpgrade(request, socket, head, (ws) => {
+          this.wss?.emit('connection', ws, request);
+        });
+      }
+    });
   }
 
   /**
@@ -91,7 +130,7 @@ export class WebSocketServer {
   }
 
   /**
-   * Set up WebSocket connection handler
+   * Set up WebSocket connection handler for candles
    */
   private setupConnectionHandler(): void {
     if (!this.wss) return;
@@ -102,7 +141,7 @@ export class WebSocketServer {
       client.isAlive = true;
       client.subscriptions = new Set();
 
-      console.log(`[WebSocket] Client ${client.id} connected`);
+      console.log(`[WebSocket] Client ${client.id} connected to candles`);
 
       // Handle pong responses for heartbeat
       client.on('pong', () => {
@@ -135,25 +174,54 @@ export class WebSocketServer {
   }
 
   /**
+   * Set up WebSocket connection handler for whale alerts
+   */
+  private setupWhaleConnectionHandler(): void {
+    if (!this.whalesWss) return;
+
+    this.whalesWss.on('connection', async (ws: WebSocket) => {
+      const clientId = uuidv4();
+      const whaleHandler = getWhaleAlertsHandler();
+      await whaleHandler.handleConnection(ws, clientId);
+    });
+  }
+
+  /**
    * Start heartbeat to detect dead connections
    */
   private startHeartbeat(): void {
     this.heartbeatInterval = setInterval(() => {
-      if (!this.wss) return;
+      // Heartbeat for candles clients
+      if (this.wss) {
+        this.wss.clients.forEach((ws) => {
+          const client = ws as ExtendedWebSocket;
 
-      this.wss.clients.forEach((ws) => {
-        const client = ws as ExtendedWebSocket;
+          if (!client.isAlive) {
+            console.log(`[WebSocket] Terminating dead candles connection: ${client.id}`);
+            const broadcaster = getRoomBroadcaster();
+            broadcaster.removeClientFromAllRooms(client);
+            return client.terminate();
+          }
 
-        if (!client.isAlive) {
-          console.log(`[WebSocket] Terminating dead connection: ${client.id}`);
-          const broadcaster = getRoomBroadcaster();
-          broadcaster.removeClientFromAllRooms(client);
-          return client.terminate();
-        }
+          client.isAlive = false;
+          client.ping();
+        });
+      }
 
-        client.isAlive = false;
-        client.ping();
-      });
+      // Heartbeat for whale alert clients
+      if (this.whalesWss) {
+        this.whalesWss.clients.forEach((ws) => {
+          const client = ws as any;
+
+          if (client.isAlive === false) {
+            console.log(`[WebSocket] Terminating dead whale alerts connection: ${client.id}`);
+            return client.terminate();
+          }
+
+          client.isAlive = false;
+          client.ping();
+        });
+      }
     }, this.HEARTBEAT_INTERVAL);
   }
 
@@ -163,12 +231,19 @@ export class WebSocketServer {
   getStats() {
     const broadcaster = getRoomBroadcaster();
     const aggregator = getCandleAggregator();
+    const whaleHandler = getWhaleAlertsHandler();
 
     return {
-      connections: this.wss?.clients.size || 0,
-      broadcaster: broadcaster.getStats(),
-      aggregator: {
-        oneMinuteCandlesCount: aggregator.getOneMinuteCandles('BTC/USDT').length,
+      candles: {
+        connections: this.wss?.clients.size || 0,
+        broadcaster: broadcaster.getStats(),
+        aggregator: {
+          oneMinuteCandlesCount: aggregator.getOneMinuteCandles('BTC/USDT').length,
+        },
+      },
+      whales: {
+        connections: this.whalesWss?.clients.size || 0,
+        ...whaleHandler.getStats(),
       },
     };
   }
@@ -189,12 +264,24 @@ export class WebSocketServer {
     const broadcaster = getRoomBroadcaster();
     broadcaster.stop();
 
-    // Close all WebSocket connections
+    // Shutdown whale alerts handler
+    const whaleHandler = getWhaleAlertsHandler();
+    await whaleHandler.shutdown();
+
+    // Close all candles WebSocket connections
     if (this.wss) {
       this.wss.clients.forEach((client) => {
         client.close();
       });
       this.wss.close();
+    }
+
+    // Close all whale alerts WebSocket connections
+    if (this.whalesWss) {
+      this.whalesWss.clients.forEach((client) => {
+        client.close();
+      });
+      this.whalesWss.close();
     }
 
     // Close Redis subscriber
