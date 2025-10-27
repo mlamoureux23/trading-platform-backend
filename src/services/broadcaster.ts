@@ -1,5 +1,5 @@
-// backend/src/websocket/broadcaster.ts
-import { ExtendedWebSocket, Room, Subscription, UpdateMessage, Candle } from './types.js';
+// backend/src/services/broadcaster.ts
+import { ExtendedWebSocket, Room, Subscription, UpdateMessage } from '../types/websocket.js';
 import { getCandleAggregator } from './aggregator.js';
 
 /**
@@ -92,7 +92,7 @@ export class RoomBroadcaster {
     const aggregator = getCandleAggregator();
 
     // Update all rooms for this symbol
-    for (const [roomKey, room] of this.rooms.entries()) {
+    for (const room of this.rooms.values()) {
       if (room.subscription.symbol === symbol) {
         // Get the aggregated candle for this room's interval
         const candle = aggregator.getAggregatedCandle(symbol, room.subscription.interval);

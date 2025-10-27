@@ -9,8 +9,8 @@ import dotenv from 'dotenv';
 import { connectDB, closeDB } from './db/connection.js';
 import { connectRedis, closeRedis } from './db/redis.js';
 import { connectTimescaleDB, closeTimescaleDB } from './db/timescale.js';
-import { getWebSocketServer } from './websocket/server.js';
-import healthRouter from './routes/health.js';
+import { getWebSocketServer } from './websocket.js';
+import healthRouter from './api/routes/health.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 // Load environment variables
@@ -40,7 +40,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/', limiter);
 
 // Routes
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({
     name: 'Trading Platform API',
     version: '1.0.0',

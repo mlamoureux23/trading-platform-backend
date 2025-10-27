@@ -1,4 +1,4 @@
-// backend/src/websocket/handlers/whales.ts
+// backend/src/api/handlers/whales.ts
 import WebSocket from 'ws';
 import { createClient, RedisClientType } from 'redis';
 

@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express';
-import { getDB } from '../db/connection.js';
-import { getRedis } from '../db/redis.js';
-import { getWebSocketServer } from '../websocket/server.js';
+import { getDB } from '../../db/connection.js';
+import { getRedis } from '../../db/redis.js';
+import { getWebSocketServer } from '../../websocket.js';
 
 const router = express.Router();
 

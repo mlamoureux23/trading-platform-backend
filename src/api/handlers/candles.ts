@@ -1,4 +1,4 @@
-// backend/src/websocket/handlers/candles.ts
+// backend/src/api/handlers/candles.ts
 import {
   ExtendedWebSocket,
   ClientMessage,
@@ -8,9 +8,9 @@ import {
   InitialDataMessage,
   PongMessage,
   VALID_INTERVALS,
-} from '../types.js';
-import { getRoomBroadcaster } from '../broadcaster.js';
-import { getHistoryService } from '../history.js';
+} from '../../types/websocket.js';
+import { getRoomBroadcaster } from '../../services/broadcaster.js';
+import { getHistoryService } from '../../services/history.js';
 
 /**
  * Handle incoming WebSocket messages from clients

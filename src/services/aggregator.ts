@@ -1,5 +1,5 @@
-// backend/src/websocket/aggregator.ts
-import { Candle, INTERVAL_TO_MS } from './types.js';
+// backend/src/services/aggregator.ts
+import { Candle, INTERVAL_TO_MS } from '../types/websocket.js';
 
 /**
  * CandleAggregator handles aggregating 1-minute candles into higher timeframes

@@ -1,6 +1,6 @@
-// backend/src/websocket/history.ts
+// backend/src/services/history.ts
 import { getCandlesticks } from '../db/timescale.js';
-import { Candle } from './types.js';
+import { Candle } from '../types/websocket.js';
 import { getCandleAggregator } from './aggregator.js';
 
 /**
